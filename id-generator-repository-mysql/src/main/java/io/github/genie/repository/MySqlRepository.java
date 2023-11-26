@@ -51,10 +51,11 @@ public class MySqlRepository implements Repository, AutoCloseable {
     private final static String MIN_WAIT_TIME_SQL =
             "select timestampdiff(microsecond,now(3),min(expiry_time))/1000 as wait_time from id_gen_server_lock";
 
-    private final static String RENEW_LOCK_SQL = "select id from id_gen_server_lock where id=? for update";
+    // private final static String RENEW_LOCK_SQL = "select id from id_gen_server_lock where id=? for update";
 
     private final static String RENEW_SQL =
-            "update id_gen_server_lock set expiry_time=date_add(now(3),interval ? second) where id=? and lock_key=?";
+            "update id_gen_server_lock set expiry_time=date_add(now(3),interval ? second)" +
+            " where id=? and lock_key=? and now(3) < expiry_time";
 
     private final static String QUERY_TIME_OFFSET_SQL =
             "select unix_timestamp(now(3))*1000,config from id_gen_config where id='time_offset'";
@@ -125,9 +126,6 @@ public class MySqlRepository implements Repository, AutoCloseable {
     private void renewLock() {
         try {
             doInTransaction(connection -> {
-                PreparedStatement lockRow = connection.prepareStatement(RENEW_LOCK_SQL);
-                lockRow.setInt(1, id);
-                lockRow.execute();
                 PreparedStatement renew = connection.prepareStatement(RENEW_SQL);
                 renew.setInt(1, lockExpirySeconds);
                 renew.setInt(2, id);
