@@ -1,4 +1,4 @@
-package io.github.genie.core;
+package io.github.genie.id.generator.repository.mysql.core;
 
 public interface IdGeneratorFactory {
 

@@ -1,7 +1,7 @@
-package io.github.genie.core.support;
+package io.github.genie.id.generator.repository.mysql.core.support;
 
-import io.github.genie.core.IdGenerator;
-import io.github.genie.core.IdGeneratorFactory;
+import io.github.genie.id.generator.repository.mysql.core.IdGenerator;
+import io.github.genie.id.generator.repository.mysql.core.IdGeneratorFactory;
 
 import java.util.Map;
 import java.util.Objects;

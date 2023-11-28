@@ -1,6 +1,8 @@
-package io.github.genie.repository;
+package io.github.genie.id.generator.repository.mysql;
 
-import io.github.genie.core.support.Repository;
+import io.github.genie.id.generator.repository.mysql.core.log.Log;
+import io.github.genie.id.generator.repository.mysql.core.support.IdGeneratorConfig;
+import io.github.genie.id.generator.repository.mysql.core.support.Repository;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -18,6 +20,11 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class MySqlRepository implements Repository, AutoCloseable {
 
+    private final Log log = Log.get(MySqlRepository.class);
+
+    public static final int UNINITIALIZED_ID = -1;
+
+
     private final String LOCK_KEY = randomKey();
 
     public static final String[] CREATE_TABLE_DDL =
@@ -26,8 +33,7 @@ public class MySqlRepository implements Repository, AutoCloseable {
                     "`id` int not null," +
                     "`expiry_time` datetime not null," +
                     "`lock_key` varchar(25) not null," +
-                    "primary key (`id`)," +
-                    "key `idx_expiry_time` (`expiry_time`)) " +
+                    "primary key (`id`)) " +
                     "engine=innodb auto_increment=2 default charset=utf8mb4 collate=utf8mb4_0900_ai_ci",
 
                     "create table if not exists `id_gen_config` (" +
@@ -51,98 +57,106 @@ public class MySqlRepository implements Repository, AutoCloseable {
     private final static String MIN_WAIT_TIME_SQL =
             "select timestampdiff(microsecond,now(3),min(expiry_time))/1000 as wait_time from id_gen_server_lock";
 
-    // private final static String RENEW_LOCK_SQL = "select id from id_gen_server_lock where id=? for update";
-
     private final static String RENEW_SQL =
             "update id_gen_server_lock set expiry_time=date_add(now(3),interval ? second)" +
             " where id=? and lock_key=? and now(3) < expiry_time";
 
     private final static String QUERY_TIME_OFFSET_SQL =
-            "select unix_timestamp(now(3))*1000,config from id_gen_config where id='time_offset'";
+            "select config from id_gen_config where id='time_offset'";
 
     private final static String CREATE_TIME_OFFSET_SQL =
-            "insert into id_gen_config (id,config) values ('time_offset',round(unix_timestamp(now(3))*1000)/1000))";
+            "insert into id_gen_config (id,config) values ('time_offset',ROUND(unix_timestamp(now(3))*1000))";
 
+    private static final String TIME_QUERY = "select unix_timestamp(now(3))*1000";
 
     private final ConnectionProvider connectionProvider;
     private final ScheduledFuture<?> scheduled;
     private final long timeOffset;
     private final int lockExpirySeconds;
     private final ScheduledExecutorService scheduledExecutorService;
-    private int id = -1;
+    private boolean shutdownServiceOnClose;
+
+    private volatile int id = UNINITIALIZED_ID;
+    private Long difTime;
 
     public MySqlRepository(ConnectionProvider connectionProvider) {
         this(
                 Executors.newSingleThreadScheduledExecutor(),
                 connectionProvider,
                 Duration.ofSeconds(20),
-                Duration.ofSeconds(10),
-                true
+                Duration.ofSeconds(5)
         );
-    }
-
-    public MySqlRepository(ScheduledExecutorService scheduledExecutorService,
-                           ConnectionProvider connectionProvider,
-                           Duration lockExpiryDuration,
-                           Duration lockRenewalPeriod) {
-        this(scheduledExecutorService,
-                connectionProvider,
-                lockExpiryDuration,
-                lockRenewalPeriod,
-                false);
+        shutdownServiceOnClose = true;
     }
 
     private MySqlRepository(ScheduledExecutorService scheduledExecutorService,
                             ConnectionProvider connectionProvider,
                             Duration lockExpiryDuration,
-                            Duration lockRenewalPeriod,
-                            boolean privateService) {
-        if (privateService) {
-            this.scheduledExecutorService = scheduledExecutorService;
-        } else {
-            this.scheduledExecutorService = null;
-        }
+                            Duration lockRenewalPeriod) {
+        this.scheduledExecutorService = scheduledExecutorService;
         this.connectionProvider = connectionProvider;
         this.lockExpirySeconds = (int) lockExpiryDuration.getSeconds();
+        proofreadingTime();
         executeDDL();
-        initId();
+        initTable(IdGeneratorConfig.DEFAULT_DEVICE_ID_WIDTH);
+        acquireId();
         this.timeOffset = initTimeOffset();
         this.scheduled = initScheduled(scheduledExecutorService, lockRenewalPeriod);
     }
 
     private ScheduledFuture<?> initScheduled(ScheduledExecutorService service, Duration lockRenewalPeriod) {
         long period = lockRenewalPeriod.toMillis();
-        return service.scheduleAtFixedRate(this::renewLock, period, period, TimeUnit.MILLISECONDS);
+        return service.scheduleAtFixedRate(this::keepLock, period, period, TimeUnit.MILLISECONDS);
+    }
+
+    private void keepLock() {
+        if (id != UNINITIALIZED_ID) {
+            try {
+                renewExpiration();
+            } catch (Exception e) {
+                log.error("renew expiration failed", e);
+            }
+        } else {
+            try {
+                acquireId();
+            } catch (Exception e) {
+                log.error("acquire id failed", e);
+            }
+        }
+        try {
+            proofreadingTime();
+        } catch (Exception e) {
+            log.error("acquire id failed", e);
+        }
     }
 
     @Override
     public int getLockId() {
-        if (id == -1) {
+        if (id == UNINITIALIZED_ID) {
             throw new IllegalStateException("id uninitialized");
         }
         return id;
     }
 
-    private void renewLock() {
-        try {
-            doInTransaction(connection -> {
-                PreparedStatement renew = connection.prepareStatement(RENEW_SQL);
-                renew.setInt(1, lockExpirySeconds);
-                renew.setInt(2, id);
-                renew.setString(3, LOCK_KEY);
-                int updateRoles = renew.executeUpdate();
-                if (updateRoles == 0) {
-                    initId();
-                }
-            });
-        } catch (Exception e) {
-            // TODO
-            e.printStackTrace();
-        }
+    private void renewExpiration() {
+        long start = System.currentTimeMillis();
+        doInConnection(connection -> {
+            connection.setAutoCommit(true);
+            PreparedStatement renew = connection.prepareStatement(RENEW_SQL);
+            renew.setInt(1, lockExpirySeconds);
+            renew.setInt(2, id);
+            renew.setString(3, LOCK_KEY);
+            int updateRoles = renew.executeUpdate();
+            if (updateRoles == 0) {
+                acquireId();
+            }
+            log.trace(() -> "renewExpiration success");
+        });
+        log.trace(() -> "renew in " + (System.currentTimeMillis() - start) + "ms");
     }
 
-    private void initId() {
-        while (id == -1) {
+    private void acquireId() {
+        while (id == UNINITIALIZED_ID) {
             try {
                 long waitTime = queryId(LOCK_KEY);
                 if (waitTime > 0) {
@@ -176,7 +190,7 @@ public class MySqlRepository implements Repository, AutoCloseable {
                     long waitTime = waitTimeResult.getLong(1);
                     result.set(waitTime);
                 } else {
-                    throw new IllegalStateException("Database not initialized");
+                    throw new IllegalStateException("database not initialized");
                 }
             }
         });
@@ -186,7 +200,7 @@ public class MySqlRepository implements Repository, AutoCloseable {
 
     @Override
     public long getTimeOffset() {
-        return timeOffset;
+        return timeOffset + difTime;
     }
 
     private long initTimeOffset() {
@@ -195,17 +209,32 @@ public class MySqlRepository implements Repository, AutoCloseable {
         return result.get();
     }
 
+    private void proofreadingTime() {
+        doInConnection(connection -> {
+            long start = System.currentTimeMillis();
+            ResultSet resultSet = connection.prepareStatement(TIME_QUERY).executeQuery();
+            if (resultSet.next()) {
+                long now = System.currentTimeMillis();
+                long dbTime = resultSet.getLong(1);
+                long dif = (now + start) / 2 - dbTime;
+                log.trace(() -> "time dif: " + dif + "ms");
+                if (difTime == null || difTime < dif) {
+                    difTime = dif;
+                    log.debug(() -> "update time dif: " + dif + "ms");
+                }
+            }
+        });
+    }
+
     private long getTimeOffsetInConnection(Connection conn) {
         try {
             long now = System.currentTimeMillis();
             ResultSet resultSet = conn.createStatement().executeQuery(QUERY_TIME_OFFSET_SQL);
-            System.out.println(System.currentTimeMillis() - now);
+            log.debug(() -> "get time_offset in " + (System.currentTimeMillis() - now) + "ms");
             if (resultSet.next()) {
-                long dbTime = resultSet.getLong(1);
-                long dif = now - dbTime;
-                long offset = resultSet.getLong(2);
-                System.out.println("offset: " + offset + ", dif:" + dif);
-                return dif + offset;
+                long offset = resultSet.getLong(1);
+                log.debug(() -> "offset: " + offset);
+                return offset;
             } else {
                 doInTransaction(conn, connection -> connection.createStatement().executeUpdate(CREATE_TIME_OFFSET_SQL));
                 return getTimeOffset();
@@ -254,8 +283,6 @@ public class MySqlRepository implements Repository, AutoCloseable {
         try (Connection connection = connectionProvider.getConnection()) {
             connectionConsumer.doInConnection(connection);
         } catch (SQLException e) {
-            // TODO
-            e.printStackTrace();
             throw new RuntimeSqlException(e);
         }
     }
@@ -275,8 +302,8 @@ public class MySqlRepository implements Repository, AutoCloseable {
 
             try {
                 connectionConsumer.doInConnection(connection);
-            } catch (SQLException t) {
-                exception = new RuntimeSqlException(t);
+            } catch (SQLException e) {
+                exception = new RuntimeSqlException(e);
             } catch (RuntimeException e) {
                 exception = e;
             }
@@ -309,7 +336,7 @@ public class MySqlRepository implements Repository, AutoCloseable {
     @Override
     public void close() {
         scheduled.cancel(true);
-        if (scheduledExecutorService != null) {
+        if (shutdownServiceOnClose) {
             scheduledExecutorService.shutdown();
         }
     }

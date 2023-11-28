@@ -1,4 +1,4 @@
-package io.github.genie.repository;
+package io.github.genie.id.generator.repository.mysql;
 
 import java.sql.Connection;
 import java.sql.SQLException;
