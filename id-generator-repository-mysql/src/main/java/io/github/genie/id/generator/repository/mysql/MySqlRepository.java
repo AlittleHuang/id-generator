@@ -6,10 +6,7 @@ import io.github.genie.id.generator.repository.mysql.core.support.Repository;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -34,7 +31,7 @@ public class MySqlRepository implements Repository, AutoCloseable {
                     "`expiry_time` datetime not null," +
                     "`lock_key` varchar(25) not null," +
                     "primary key (`id`)) " +
-                    "engine=innodb auto_increment=2 default charset=utf8mb4 collate=utf8mb4_0900_ai_ci",
+                    "engine=innodb default charset=ascii collate=ascii_bin",
 
                     "create table if not exists `id_gen_config` (" +
                     "`id` varchar(64) not null," +
@@ -45,27 +42,22 @@ public class MySqlRepository implements Repository, AutoCloseable {
 
     private final static String EXISTS_QUERY_SQL = "select id from id_gen_server_lock limit 1";
 
-
     private final static String ID_QUERY_SQL =
-            "select id from id_gen_server_lock where id  = (select min(id) " +
-            "from id_gen_server_lock where now(3) > expiry_time) for update";
+            "select id from id_gen_server_lock where id=(select min(id) " +
+            "from id_gen_server_lock where now()>expiry_time) for update";
 
     private final static String LOCK_SQL =
             "update id_gen_server_lock " +
-            "set expiry_time = date_add(now(3), interval ? second), lock_key=? where id=?";
+            "set expiry_time=date_add(now(),interval ? second), lock_key=? where id=?";
 
     private final static String MIN_WAIT_TIME_SQL =
-            "select timestampdiff(microsecond,now(3),min(expiry_time))/1000 as wait_time from id_gen_server_lock";
-
-    private final static String RENEW_SQL =
-            "update id_gen_server_lock set expiry_time=date_add(now(3),interval ? second)" +
-            " where id=? and lock_key=? and now(3) < expiry_time";
+            "select timestampdiff(microsecond,now(),min(expiry_time))/1000 as wait_time from id_gen_server_lock";
 
     private final static String QUERY_TIME_OFFSET_SQL =
             "select config from id_gen_config where id='time_offset'";
 
     private final static String CREATE_TIME_OFFSET_SQL =
-            "insert into id_gen_config (id,config) values ('time_offset',ROUND(unix_timestamp(now(3))*1000))";
+            "insert into id_gen_config (id,config) values ('time_offset',ROUND(unix_timestamp(now())*1000))";
 
     private static final String TIME_QUERY = "select unix_timestamp(now(3))*1000";
 
@@ -78,6 +70,8 @@ public class MySqlRepository implements Repository, AutoCloseable {
 
     private volatile int id = UNINITIALIZED_ID;
     private Long difTime;
+
+    private String renewSql;
 
     public MySqlRepository(ConnectionProvider connectionProvider) {
         this(
@@ -116,7 +110,8 @@ public class MySqlRepository implements Repository, AutoCloseable {
             } catch (Exception e) {
                 log.error("renew expiration failed", e);
             }
-        } else {
+        }
+        if (id == UNINITIALIZED_ID) {
             try {
                 acquireId();
             } catch (Exception e) {
@@ -141,24 +136,28 @@ public class MySqlRepository implements Repository, AutoCloseable {
     private void renewExpiration() {
         long start = System.currentTimeMillis();
         doInConnection(connection -> {
-            connection.setAutoCommit(true);
-            PreparedStatement renew = connection.prepareStatement(RENEW_SQL);
-            renew.setInt(1, lockExpirySeconds);
-            renew.setInt(2, id);
-            renew.setString(3, LOCK_KEY);
-            int updateRoles = renew.executeUpdate();
-            if (updateRoles == 0) {
-                acquireId();
+            Statement renew = connection.createStatement();
+            int updateRoles = renew.executeUpdate(renewSql);
+            log.trace(() -> renewSql);
+            if (updateRoles == 1) {
+                if (!connection.getAutoCommit()) {
+                    connection.commit();
+                }
+            } else if (updateRoles == 0) {
+                updateId(UNINITIALIZED_ID);
+            } else {
+                updateId(UNINITIALIZED_ID);
+                throw new IllegalStateException();
             }
-            log.trace(() -> "renewExpiration success");
         });
         log.trace(() -> "renew in " + (System.currentTimeMillis() - start) + "ms");
+        log.trace(() -> "renew success: " + (id != UNINITIALIZED_ID));
     }
 
     private void acquireId() {
         while (id == UNINITIALIZED_ID) {
             try {
-                long waitTime = queryId(LOCK_KEY);
+                long waitTime = acquireId(LOCK_KEY);
                 if (waitTime > 0) {
                     synchronized (this) {
                         try {
@@ -173,12 +172,12 @@ public class MySqlRepository implements Repository, AutoCloseable {
         }
     }
 
-    private long queryId(String deviceId) throws SQLException {
+    private long acquireId(String deviceId) throws SQLException {
         AtomicLong result = new AtomicLong();
         doInTransaction(connection -> {
             ResultSet idResult = connection.createStatement().executeQuery(ID_QUERY_SQL);
             if (idResult.next()) {
-                id = idResult.getInt(1);
+                updateId(idResult.getInt(1));
                 PreparedStatement statement = connection.prepareStatement(LOCK_SQL);
                 statement.setInt(1, lockExpirySeconds);
                 statement.setString(2, deviceId);
@@ -250,6 +249,20 @@ public class MySqlRepository implements Repository, AutoCloseable {
             doInitTable(bitWidth);
         } catch (SQLException e) {
             throw new RuntimeSqlException(e);
+        }
+    }
+
+    private void updateId(int id) {
+        this.id = id;
+        if (id >= 0) {
+            renewSql = "update id_gen_server_lock set" +
+                       " expiry_time=date_add(now(),interval " + lockExpirySeconds + " second) " +
+                       "where" +
+                       " id=" + id + " and" +
+                       " lock_key='" + LOCK_KEY + "' and" +
+                       " now() < expiry_time";
+        } else {
+            renewSql = null;
         }
     }
 
