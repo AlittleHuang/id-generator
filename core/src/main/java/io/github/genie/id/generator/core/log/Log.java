@@ -9,18 +9,10 @@ import java.util.logging.Logger;
 
 public class Log {
 
+    private final Logger logger;
+
     static {
         init();
-    }
-
-
-    public static Log get(Class<?> type) {
-        return get(type.getName());
-    }
-
-    public static Log get(String name) {
-        Logger logger = Logger.getLogger(name);
-        return new Log(logger);
     }
 
     public static void init() {
@@ -39,7 +31,14 @@ public class Log {
         }
     }
 
-    private final Logger logger;
+    public static Log get(Class<?> type) {
+        return get(type.getName());
+    }
+
+    public static Log get(String name) {
+        Logger logger = Logger.getLogger(name);
+        return new Log(logger);
+    }
 
     public Log(Logger logger) {
         this.logger = logger;
