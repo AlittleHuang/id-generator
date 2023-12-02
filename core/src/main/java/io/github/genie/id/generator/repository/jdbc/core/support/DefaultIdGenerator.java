@@ -1,6 +1,6 @@
-package io.github.genie.id.generator.repository.mysql.core.support;
+package io.github.genie.id.generator.repository.jdbc.core.support;
 
-import io.github.genie.id.generator.repository.mysql.core.IdGenerator;
+import io.github.genie.id.generator.repository.jdbc.core.IdGenerator;
 
 import java.util.concurrent.atomic.AtomicLong;
 

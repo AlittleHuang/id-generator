@@ -1,4 +1,4 @@
-package io.github.genie.id.generator.repository.mysql.core.log;
+package io.github.genie.id.generator.repository.jdbc.core.log;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +11,16 @@ public class Log {
 
     static {
         init();
+    }
+
+
+    public static Log get(Class<?> type) {
+        return get(type.getName());
+    }
+
+    public static Log get(String name) {
+        Logger logger = Logger.getLogger(name);
+        return new Log(logger);
     }
 
     public static void init() {
@@ -48,13 +58,8 @@ public class Log {
         logger.log(Level.FINER, messageSupplier);
     }
 
-    public static Log get(Class<?> type) {
-        return get(type.getName());
-    }
 
-    public static Log get(String name) {
-        Logger logger = Logger.getLogger(name);
-        return new Log(logger);
+    public void info(Supplier<String> messageSupplier) {
+        logger.log(Level.INFO, messageSupplier);
     }
-
 }

@@ -1,12 +1,14 @@
-package io.github.genie.id.generator.repository.mysql;
+package io.github.genie.id.generator.repository.jdbc;
 
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import io.github.genie.id.generator.repository.mysql.core.IdGenerator;
-import io.github.genie.id.generator.repository.mysql.core.support.DefaultIdGeneratorFactory;
+import io.github.genie.id.generator.repository.jdbc.core.IdGenerator;
+import io.github.genie.id.generator.repository.jdbc.core.support.DefaultIdGeneratorFactory;
 
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 
 class MySqlRepositoryTest {
 
@@ -29,13 +31,22 @@ class MySqlRepositoryTest {
         // source.setPassword("root");
         // source.setConnectTimeout(1000);
 
-        MySqlRepository repository = new MySqlRepository(source::getConnection);
+        JdbcRepository repository = new JdbcRepository(source::getConnection, 1);
         DefaultIdGeneratorFactory factory = new DefaultIdGeneratorFactory(repository);
 
         IdGenerator test = factory.getIdGenerator("test");
-        for (int i = 0; i < 10; i++) {
-            System.out.println(test.nextId());
+        int size = 1000000;
+        long[] ids = new long[size];
+        long l = System.currentTimeMillis();
+        for (int i = 0; i < size; i++) {
+            ids[i] = test.nextId();
         }
+        System.out.println(System.currentTimeMillis() - l);
+        Set<Long> set = new HashSet<>();
+        for (long id : ids) {
+            set.add(id);
+        }
+        System.out.println(set.size());
         Thread.sleep(Duration.ofMinutes(10).toMillis());
         source.close();
         repository.close();

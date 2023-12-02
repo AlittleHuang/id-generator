@@ -1,6 +1,6 @@
-package io.github.genie.id.generator.repository.mysql;
+package io.github.genie.id.generator.repository.jdbc;
 
-import io.github.genie.id.generator.repository.mysql.core.log.Log;
+import io.github.genie.id.generator.repository.jdbc.core.log.Log;
 
 public class LogTest {
 
