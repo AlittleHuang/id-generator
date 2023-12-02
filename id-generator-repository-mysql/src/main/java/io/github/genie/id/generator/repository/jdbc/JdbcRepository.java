@@ -1,9 +1,9 @@
 package io.github.genie.id.generator.repository.jdbc;
 
 import io.github.genie.id.generator.repository.jdbc.JdbcDatabase.Locker;
-import io.github.genie.id.generator.repository.jdbc.core.log.Log;
-import io.github.genie.id.generator.repository.jdbc.core.support.IdGeneratorConfig;
-import io.github.genie.id.generator.repository.jdbc.core.support.Repository;
+import io.github.genie.id.generator.core.log.Log;
+import io.github.genie.id.generator.core.support.IdGeneratorConfig;
+import io.github.genie.id.generator.core.support.Repository;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;

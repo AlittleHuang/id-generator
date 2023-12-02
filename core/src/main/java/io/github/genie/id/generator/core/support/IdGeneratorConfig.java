@@ -1,4 +1,4 @@
-package io.github.genie.id.generator.repository.jdbc.core.support;
+package io.github.genie.id.generator.core.support;
 
 public class IdGeneratorConfig {
 

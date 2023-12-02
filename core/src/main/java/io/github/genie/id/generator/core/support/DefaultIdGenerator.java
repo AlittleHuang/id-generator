@@ -1,6 +1,6 @@
-package io.github.genie.id.generator.repository.jdbc.core.support;
+package io.github.genie.id.generator.core.support;
 
-import io.github.genie.id.generator.repository.jdbc.core.IdGenerator;
+import io.github.genie.id.generator.core.IdGenerator;
 
 import java.util.concurrent.atomic.AtomicLong;
 

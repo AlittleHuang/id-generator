@@ -3,8 +3,8 @@ package io.github.genie.id.generator.repository.jdbc;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import io.github.genie.id.generator.repository.jdbc.core.IdGenerator;
-import io.github.genie.id.generator.repository.jdbc.core.support.DefaultIdGeneratorFactory;
+import io.github.genie.id.generator.core.IdGenerator;
+import io.github.genie.id.generator.core.support.DefaultIdGeneratorFactory;
 
 import java.time.Duration;
 import java.util.HashSet;

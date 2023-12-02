@@ -1,4 +1,4 @@
-package io.github.genie.id.generator.repository.jdbc.core.log;
+package io.github.genie.id.generator.core.log;
 
 import java.io.IOException;
 import java.io.InputStream;
