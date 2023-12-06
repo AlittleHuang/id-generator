@@ -31,7 +31,7 @@ class MySqlRepositoryTest {
         // source.setPassword("root");
         // source.setConnectTimeout(1000);
 
-        JdbcRepository repository = new JdbcRepository(source::getConnection, 1);
+        JdbcRepository repository = new JdbcRepository(source::getConnection);
         DefaultIdGeneratorFactory factory = new DefaultIdGeneratorFactory(repository);
 
         IdGenerator test = factory.getIdGenerator("test");
