@@ -6,10 +6,9 @@ import java.sql.SQLException;
 
 public interface JdbcDatabase {
 
-
     void executeTableDDL(Connection connection) throws SQLException;
 
-    Locker queryExpired(Connection connection) throws SQLException;
+    Locker queryExpiredForUpdate(Connection connection) throws SQLException;
 
     int queryNextId(Connection connection) throws SQLException;
 
@@ -23,6 +22,23 @@ public interface JdbcDatabase {
 
     long queryTime(Connection connection) throws SQLException;
 
+    default void doInTransaction(Connection connection, ConnectionConsumer consumer) throws SQLException {
+        boolean autoCommit = connection.getAutoCommit();
+        if (autoCommit) {
+            connection.setAutoCommit(false);
+        }
+        try {
+            consumer.doInConnection(connection);
+            connection.commit();
+        } catch (Exception e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            if (autoCommit) {
+                connection.setAutoCommit(true);
+            }
+        }
+    }
 
     class Locker {
         private final int id;
@@ -40,24 +56,6 @@ public interface JdbcDatabase {
 
         public String getKey() {
             return key;
-        }
-    }
-
-    default void doInTransaction(Connection connection, ConnectionConsumer consumer) throws SQLException {
-        boolean autoCommit = connection.getAutoCommit();
-        if (autoCommit) {
-            connection.setAutoCommit(false);
-        }
-        try {
-            consumer.doInConnection(connection);
-            connection.commit();
-        } catch (Exception e) {
-            connection.rollback();
-            throw e;
-        } finally {
-            if (autoCommit) {
-                connection.setAutoCommit(true);
-            }
         }
     }
 

@@ -183,7 +183,7 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     private void updateLock() {
         doInTransaction(connection -> {
-            Locker record = database.queryExpired(connection);
+            Locker record = database.queryExpiredForUpdate(connection);
             if (record != null && isAvailableId(record.getId())) {
                 int lock = database.lock(connection, record.getId(), record.getKey(), LOCK_KEY, lockExpirySeconds);
                 if (lock == 1) {
