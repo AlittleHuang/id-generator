@@ -1,9 +1,10 @@
 package io.github.genie.id.generator.repository.jdbc;
 
-import io.github.genie.id.generator.repository.jdbc.JdbcDatabase.Locker;
 import io.github.genie.id.generator.core.log.Log;
 import io.github.genie.id.generator.core.support.IdGeneratorConfig;
+import io.github.genie.id.generator.core.support.Locked;
 import io.github.genie.id.generator.core.support.Repository;
+import io.github.genie.id.generator.repository.jdbc.JdbcDatabase.Locker;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -24,7 +25,6 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     public static final int UNINITIALIZED_ID = -1;
 
-
     private static final String LOCK_KEY = randomKey();
 
     private final JdbcDatabase database;
@@ -36,8 +36,8 @@ public class JdbcRepository implements Repository, AutoCloseable {
     private final int maxId;
     private boolean shutdownServiceOnClose;
 
-    private volatile int id = UNINITIALIZED_ID;
-    private Long difTime;
+    private volatile Locked locked;
+    private Long timeDifference;
 
 
     public JdbcRepository(ConnectionProvider connectionProvider) {
@@ -93,14 +93,14 @@ public class JdbcRepository implements Repository, AutoCloseable {
     }
 
     private void keepLock() {
-        if (id != UNINITIALIZED_ID) {
+        if (locked != null) {
             try {
                 renewExpiration();
             } catch (Exception e) {
                 log.error("renew expiration failed", e);
             }
         }
-        if (id == UNINITIALIZED_ID) {
+        if (locked == null) {
             try {
                 acquireId();
             } catch (Exception e) {
@@ -115,34 +115,37 @@ public class JdbcRepository implements Repository, AutoCloseable {
     }
 
     @Override
-    public int getLockId() {
-        if (id == UNINITIALIZED_ID) {
+    public Locked getLockId() {
+        if (locked == null) {
             throw new IllegalStateException("id uninitialized or status closed");
         }
-        return id;
+        return locked;
     }
 
     private void renewExpiration() {
         long start = System.currentTimeMillis();
         doInConnection(connection -> {
+            int id = locked.getId();
             int updateRoles = database.lock(connection, id, LOCK_KEY, LOCK_KEY, lockExpirySeconds);
             if (updateRoles == 1) {
+                long until = database.queryExpiryTime(connection, id);
+                updateId(until, id);
                 commit(connection);
             } else if (updateRoles == 0) {
-                updateId(UNINITIALIZED_ID);
+                removeLocked();
             } else {
-                updateId(UNINITIALIZED_ID);
+                removeLocked();
                 throw new IllegalStateException();
             }
         });
         log.trace(() -> "renew in " + (System.currentTimeMillis() - start) + "ms");
-        log.trace(() -> "renew success: " + (id != UNINITIALIZED_ID));
+        log.trace(() -> "renew success: " + (locked != null));
     }
 
     private void acquireId() {
-        while (id == UNINITIALIZED_ID) {
+        while (locked == null) {
             doAcquireId();
-            if (id == UNINITIALIZED_ID) {
+            if (locked == null) {
                 await();
             }
         }
@@ -150,7 +153,7 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     protected void doAcquireId() {
         updateLock();
-        if (id == UNINITIALIZED_ID) {
+        if (locked == null) {
             newLock();
         }
     }
@@ -160,7 +163,8 @@ public class JdbcRepository implements Repository, AutoCloseable {
             int nextId = database.queryNextId(connection);
             if (isAvailableId(nextId)) {
                 if (database.newLock(connection, nextId, lockExpirySeconds, LOCK_KEY)) {
-                    updateId(nextId);
+                    long until = database.queryExpiryTime(connection, nextId);
+                    updateId(until, nextId);
                 }
             }
         });
@@ -187,7 +191,8 @@ public class JdbcRepository implements Repository, AutoCloseable {
             if (record != null && isAvailableId(record.getId())) {
                 int lock = database.lock(connection, record.getId(), record.getKey(), LOCK_KEY, lockExpirySeconds);
                 if (lock == 1) {
-                    updateId(record.getId());
+                    long until = database.queryExpiryTime(connection, record.getId());
+                    updateId(until, record.getId());
                     commit(connection);
                 }
             }
@@ -202,7 +207,12 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     @Override
     public long getTimeOffset() {
-        return timeOffset + difTime;
+        return timeOffset;
+    }
+
+    @Override
+    public long getTime() {
+        return System.currentTimeMillis() + timeDifference;
     }
 
     private void proofreadingTime() {
@@ -210,19 +220,23 @@ public class JdbcRepository implements Repository, AutoCloseable {
             long start = System.currentTimeMillis();
             long dbTime = database.queryTime(connection);
             long end = System.currentTimeMillis();
-            long dif = (end + start) / 2 - dbTime;
+            long time = (end + start) / 2;
+            long dif = dbTime - time;
             log.trace(() -> "time dif: " + dif + "ms");
-            if (difTime == null || difTime < dif) {
-                difTime = dif;
+            if (timeDifference == null || timeDifference < dif) {
+                timeDifference = dif;
                 log.debug(() -> "update time dif: " + dif + "ms");
             }
-
         });
     }
 
-    private void updateId(int id) {
-        this.id = id;
+    private void updateId(long until, int id) {
         log.info(() -> "update id:" + id);
+        if (id == UNINITIALIZED_ID) {
+            this.locked = null;
+            return;
+        }
+        locked = new Locked(id, until);
     }
 
     private void doInConnection(ConnectionConsumer connectionConsumer) {
@@ -257,11 +271,15 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     @Override
     public void close() {
-        updateId(UNINITIALIZED_ID);
+        removeLocked();
         scheduled.cancel(true);
         if (shutdownServiceOnClose) {
             scheduledExecutorService.shutdown();
         }
+    }
+
+    private void removeLocked() {
+        updateId(UNINITIALIZED_ID, UNINITIALIZED_ID);
     }
 
 }

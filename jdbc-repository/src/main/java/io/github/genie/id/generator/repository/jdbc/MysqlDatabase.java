@@ -1,6 +1,10 @@
 package io.github.genie.id.generator.repository.jdbc;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 
 public class MysqlDatabase implements JdbcDatabase {
 
@@ -118,6 +122,17 @@ public class MysqlDatabase implements JdbcDatabase {
     @Override
     public long queryTime(Connection connection) throws SQLException {
         String sql = "select unix_timestamp(now(3))*1000";
+        try (ResultSet resultSet = connection.prepareStatement(sql).executeQuery()) {
+            if (resultSet.next()) {
+                return resultSet.getLong(1);
+            }
+        }
+        throw new IllegalStateException();
+    }
+
+    @Override
+    public long queryExpiryTime(Connection connection, int id) throws SQLException {
+        String sql = "select unix_timestamp(expiry_time)*1000 from id_generator_lock";
         try (ResultSet resultSet = connection.prepareStatement(sql).executeQuery()) {
             if (resultSet.next()) {
                 return resultSet.getLong(1);

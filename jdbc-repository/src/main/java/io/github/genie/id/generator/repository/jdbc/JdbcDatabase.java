@@ -22,6 +22,8 @@ public interface JdbcDatabase {
 
     long queryTime(Connection connection) throws SQLException;
 
+    long queryExpiryTime(Connection connection, int id) throws SQLException;
+
     default void doInTransaction(Connection connection, ConnectionConsumer consumer) throws SQLException {
         boolean autoCommit = connection.getAutoCommit();
         if (autoCommit) {

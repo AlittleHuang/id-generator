@@ -20,9 +20,9 @@ class MySqlRepositoryTest {
         config.setJdbcUrl("jdbc:mysql:///id_generator");
         config.setUsername("root");
         config.setPassword("root");
-        config.addDataSourceProperty("connectionTimeout", "1000"); // 连接超时：1秒
-        config.addDataSourceProperty("idleTimeout", "60000"); // 空闲超时：60秒
-        config.addDataSourceProperty("maximumPoolSize", "2"); // 最大连接数：10
+        config.addDataSourceProperty("connectionTimeout", "1000");
+        config.addDataSourceProperty("idleTimeout", "60000");
+        config.addDataSourceProperty("maximumPoolSize", "2");
         HikariDataSource source = new HikariDataSource(config);
 
         // MysqlConnectionPoolDataSource source = new MysqlConnectionPoolDataSource();

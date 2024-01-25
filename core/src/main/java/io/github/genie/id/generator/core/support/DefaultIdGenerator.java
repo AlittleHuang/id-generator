@@ -18,19 +18,20 @@ class DefaultIdGenerator implements IdGenerator {
 
     @Override
     public long nextId() {
-        int deviceId = repository.getLockId();
+        Locked locked = repository.getLockId();
+        int deviceId = locked.getId();
         if (deviceId < 0 || deviceId >= config.getDeviceIdMax()) {
             throw new IllegalStateException(
                     deviceId + ", 0 < deviceId < " + config.getDeviceIdMax()
             );
         }
-        return nextNumber() << config.getDeviceIdSize() | deviceId;
+        return nextNumber(locked.getUntil()) << config.getDeviceIdSize() | deviceId;
     }
 
-    public long nextNumber() {
+    public long nextNumber(long until) {
         return generator.updateAndGet(number -> {
-            long now = (System.currentTimeMillis() - repository.getTimeOffset())
-                       >> config.getTimeDiscardWidth();
+            long timeOffset = repository.getTimeOffset();
+            long now = fixedTime(repository.getTime(), timeOffset);
             long time = number >> config.getSerialSize();
             if (time >= now && (number & config.getSerialMask()) + 1 < config.getSerialMax()) {
                 return number + 1;
@@ -40,7 +41,15 @@ class DefaultIdGenerator implements IdGenerator {
             } else {
                 time++;
             }
+            long maxTime = fixedTime(until, timeOffset);
+            if (time > maxTime) {
+                throw new IllegalStateException();
+            }
             return time << config.getSerialSize();
         });
+    }
+
+    private long fixedTime(long time, long timeOffset) {
+        return (time - timeOffset) >> config.getTimeDiscardWidth();
     }
 }

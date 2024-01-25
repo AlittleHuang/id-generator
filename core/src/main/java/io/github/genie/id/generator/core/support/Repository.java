@@ -2,8 +2,10 @@ package io.github.genie.id.generator.core.support;
 
 public interface Repository {
 
-    int getLockId();
+    Locked getLockId();
 
     long getTimeOffset();
+
+    long getTime();
 
 }
