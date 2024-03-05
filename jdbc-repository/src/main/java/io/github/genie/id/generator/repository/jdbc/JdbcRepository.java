@@ -121,12 +121,12 @@ public class JdbcRepository implements Repository, AutoCloseable {
         long start = System.currentTimeMillis();
         doInConnection(connection -> {
             int id = locked.getId();
-            int updateRoles = database.lock(connection, id, LOCK_KEY, LOCK_KEY, lockExpirySeconds);
-            if (updateRoles == 1) {
+            int updateRows = database.lock(connection, id, LOCK_KEY, LOCK_KEY, lockExpirySeconds);
+            if (updateRows == 1) {
                 long until = database.queryExpiryTime(connection, id);
                 updateId(until, id);
                 commit(connection);
-            } else if (updateRoles == 0) {
+            } else if (updateRows == 0) {
                 removeLocked();
             } else {
                 removeLocked();

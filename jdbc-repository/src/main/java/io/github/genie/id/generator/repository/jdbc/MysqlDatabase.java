@@ -78,8 +78,8 @@ public class MysqlDatabase implements JdbcDatabase {
             statement.setInt(1, id);
             statement.setInt(2, expirySeconds);
             statement.setString(3, key);
-            int updateRoles = statement.executeUpdate();
-            return updateRoles == 1;
+            int updateRows = statement.executeUpdate();
+            return updateRows == 1;
         }
     }
 
@@ -132,7 +132,7 @@ public class MysqlDatabase implements JdbcDatabase {
 
     @Override
     public long queryExpiryTime(Connection connection, int id) throws SQLException {
-        String sql = "select unix_timestamp(expiry_time)*1000 from id_generator_lock";
+        String sql = "select unix_timestamp(expiry_time)*1000 from id_generator_lock where id=" + id;
         try (ResultSet resultSet = connection.prepareStatement(sql).executeQuery()) {
             if (resultSet.next()) {
                 return resultSet.getLong(1);
