@@ -107,11 +107,6 @@ public class JdbcRepository implements Repository, AutoCloseable {
                 log.error("acquire id failed", e);
             }
         }
-        try {
-            proofreadingTime();
-        } catch (Exception e) {
-            log.error("acquire id failed", e);
-        }
     }
 
     @Override
@@ -217,15 +212,15 @@ public class JdbcRepository implements Repository, AutoCloseable {
 
     private void proofreadingTime() {
         doInConnection(connection -> {
-            long start = System.currentTimeMillis();
-            long dbTime = database.queryTime(connection);
-            long end = System.currentTimeMillis();
-            long time = (end + start) / 2;
-            long dif = dbTime - time;
-            log.trace(() -> "time dif: " + dif + "ms");
-            if (timeDifference == null || timeDifference < dif) {
-                timeDifference = dif;
-                log.debug(() -> "update time dif: " + dif + "ms");
+            for (int i = 0; i < 8; i++) {
+                long start = System.currentTimeMillis();
+                long remote = database.queryTime(connection);
+                long end = System.currentTimeMillis();
+                long local = (end + start) / 2;
+                long dif = remote - local;
+                if (timeDifference == null || timeDifference < dif) {
+                    timeDifference = dif;
+                    log.debug(() -> "update time dif: " + dif + "ms"); }
             }
         });
     }
