@@ -85,7 +85,7 @@ public class MysqlDatabase implements JdbcDatabase {
 
     @Override
     public long queryAwaitTime(Connection connection, int maxId) throws SQLException {
-        String sql = "select timestampdiff(microsecond,now(),min(expiry_time))/1000 as wait_time " +
+        String sql = "select timestampdiff(microsecond,now(3),min(expiry_time))/1000 as wait_time " +
                      "from id_generator_lock where id between 0 and ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, maxId);
