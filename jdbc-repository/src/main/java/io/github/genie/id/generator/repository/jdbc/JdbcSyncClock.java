@@ -23,10 +23,7 @@ public abstract class JdbcSyncClock implements SyncClock {
     public static final Duration DEFAULT_LOCK_RENEWAL_PERIOD = Duration.ofSeconds(3);
     protected final Log log = Log.get(JdbcSyncClock.class);
 
-    protected static final int EXPIRED_ID = -1;
-
-    protected volatile int id = EXPIRED_ID;
-    protected volatile long expiryAt;
+    protected volatile SyncClock.Clock clock;
     protected static final String RANDOM_KEY = randomKey();
 
     protected final int maxId;
@@ -36,7 +33,7 @@ public abstract class JdbcSyncClock implements SyncClock {
 
     protected final long dbTimeOffset;
 
-    protected final long startTime;
+    protected final long startStamp;
 
     protected final Lock lock = new ReentrantLock();
 
@@ -55,7 +52,7 @@ public abstract class JdbcSyncClock implements SyncClock {
         this.connectionProvider = connectionProvider;
         this.expirySeconds = expirySeconds;
         this.dbTimeOffset = getDbTimeOffset();
-        this.startTime = getStartTime();
+        this.startStamp = getStartTime();
         acquireId();
         initScheduled(scheduledExecutorService, lockRenewalPeriod);
     }
@@ -101,25 +98,28 @@ public abstract class JdbcSyncClock implements SyncClock {
     }
 
     protected boolean isIdExpired() {
-        return id == EXPIRED_ID;
+        return clock == null;
     }
 
     protected void acquireNewId(Connection connection) throws SQLException {
         Integer nextId = getNextId(connection);
         if (nextId != null) {
             if (insertRecord(connection, nextId, key, expirySeconds)) {
-                id = nextId;
-                expiryAt = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expirySeconds);
+                updateClock(nextId);
             }
         }
+    }
+
+    private void updateClock(Integer nextId) {
+        long expiry = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expirySeconds);
+        clock = new Clock(nextId, dbServerTime(expiry));
     }
 
     protected void acquireExistsId(Connection connection) throws SQLException {
         Record record = getExpiredRecord(connection, maxId);
         if (record != null) {
             if (renewTtl(connection, record.getId(), record.getKey(), key, expirySeconds)) {
-                id = record.getId();
-                expiryAt = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expirySeconds);
+                updateClock(record.getId());
             }
         }
     }
@@ -165,8 +165,8 @@ public abstract class JdbcSyncClock implements SyncClock {
         if (!isIdExpired()) {
             try {
                 doInConnection(connection -> {
-                    if (renewTtl(connection, id, key, key, expirySeconds)) {
-                        expiryAt = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expirySeconds);
+                    if (renewTtl(connection, clock.id(), key, key, expirySeconds)) {
+                        updateClock(clock.id());
                     }
                 });
             } catch (Exception e) {
@@ -241,32 +241,44 @@ public abstract class JdbcSyncClock implements SyncClock {
         });
     }
 
-    private void checkStatus() {
-        if (isIdExpired()) {
-            throw new IllegalStateException();
+    private long dbServerTime(long time) {
+        return time + dbTimeOffset;
+    }
+
+    @Override
+    public SyncClock.Clock acquire() {
+        return clock;
+    }
+
+    class Clock implements SyncClock.Clock {
+
+        private final int id;
+        private final long expiry;
+
+        public Clock(int id, long expiry) {
+            this.id = id;
+            this.expiry = expiry;
         }
-    }
 
-    @Override
-    public int id() {
-        checkStatus();
-        return id;
-    }
+        @Override
+        public int id() {
+            return id;
+        }
 
-    @Override
-    public long now() {
-        checkStatus();
-        return timeFromStart(System.currentTimeMillis());
-    }
+        @Override
+        public long startStamp() {
+            return startStamp;
+        }
 
-    @Override
-    public long expiry() {
-        checkStatus();
-        return timeFromStart(expiryAt);
-    }
+        @Override
+        public long expiry() {
+            return expiry;
+        }
 
-    protected long timeFromStart(long time) {
-        return time + dbTimeOffset - startTime;
+        @Override
+        public long now() {
+            return dbServerTime(System.currentTimeMillis());
+        }
     }
 
 }
