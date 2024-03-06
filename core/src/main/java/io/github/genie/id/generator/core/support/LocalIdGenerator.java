@@ -22,9 +22,8 @@ public class LocalIdGenerator implements IdGenerator {
     }
 
     private long computeNext(long origin) {
-        long time = origin >> sequenceBits;
-        long now = clock.now() - startStamp;
-        return time >= now ? 1 + origin : now << sequenceBits;
+        long now = clock.now();
+        return getTime(origin) >= now ? 1 + origin : (now - startStamp) << sequenceBits;
     }
 
     public int getSequenceBits() {
@@ -40,6 +39,6 @@ public class LocalIdGenerator implements IdGenerator {
     }
 
     public long getTime(long id) {
-        return id >> sequenceBits;
+        return (id >> sequenceBits) + startStamp;
     }
 }
