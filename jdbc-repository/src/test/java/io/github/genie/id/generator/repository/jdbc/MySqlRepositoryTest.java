@@ -4,7 +4,9 @@ package io.github.genie.id.generator.repository.jdbc;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.genie.id.generator.core.IdGenerator;
-import io.github.genie.id.generator.core.support.DefaultIdGeneratorFactory;
+import io.github.genie.id.generator.core.IdGeneratorFactory;
+import io.github.genie.id.generator.core.linear.Config;
+import io.github.genie.id.generator.core.linear.LinearIdGeneratorFactory;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -31,8 +33,11 @@ class MySqlRepositoryTest {
         // source.setPassword("root");
         // source.setConnectTimeout(1000);
 
-        JdbcRepository repository = new JdbcRepository(source::getConnection);
-        DefaultIdGeneratorFactory factory = new DefaultIdGeneratorFactory(repository);
+//        JdbcRepository repository = new JdbcRepository(source::getConnection);
+//        DefaultIdGeneratorFactory factory = new DefaultIdGeneratorFactory(repository);
+
+        Config config1 = new Config();
+        IdGeneratorFactory factory = new LinearIdGeneratorFactory(config1, new MysqlSyncClock(1, source::getConnection));
 
         IdGenerator test = factory.getIdGenerator("test");
         int size = 1000000;
@@ -47,9 +52,9 @@ class MySqlRepositoryTest {
             set.add(id);
         }
         System.out.println(set.size());
-        Thread.sleep(Duration.ofMinutes(10).toMillis());
+        Thread.sleep(Duration.ofSeconds(100).toMillis());
         source.close();
-        repository.close();
+//        repository.close();
     }
 
 }
