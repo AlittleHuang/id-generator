@@ -1,4 +1,4 @@
-package io.github.genie.id.generator.core.linear;
+package io.github.genie.id.generator.core.auto;
 
 public class Config {
 

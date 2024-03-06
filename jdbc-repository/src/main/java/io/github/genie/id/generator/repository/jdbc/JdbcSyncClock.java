@@ -1,6 +1,6 @@
 package io.github.genie.id.generator.repository.jdbc;
 
-import io.github.genie.id.generator.core.linear.SyncClock;
+import io.github.genie.id.generator.core.auto.SyncClock;
 import io.github.genie.id.generator.core.log.Log;
 import org.jetbrains.annotations.NotNull;
 

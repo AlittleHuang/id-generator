@@ -1,20 +1,20 @@
-package io.github.genie.id.generator.core.linear;
+package io.github.genie.id.generator.core.auto;
 
 import io.github.genie.id.generator.core.IdGenerator;
-import io.github.genie.id.generator.core.linear.SyncClock.Clock;
+import io.github.genie.id.generator.core.auto.SyncClock.Clock;
 import io.github.genie.id.generator.core.support.SnowFlakeIdGenerator;
 
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class LinearTimeIdGenerator implements IdGenerator {
+public class AutoSyncIdGenerator implements IdGenerator {
     private final Lock lock = new ReentrantLock();
     private volatile SnowFlakeIdGenerator generator;
     private final SyncClock syncClock;
     private final int sequenceBits;
     private final int machineBits;
 
-    public LinearTimeIdGenerator(SyncClock syncClock, Config config) {
+    public AutoSyncIdGenerator(SyncClock syncClock, Config config) {
         this.syncClock = syncClock;
         this.sequenceBits = config.getSerialBits();
         this.machineBits = config.getIdBits();
