@@ -5,8 +5,6 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.genie.id.generator.core.IdGenerator;
 import io.github.genie.id.generator.core.IdGeneratorFactory;
-import io.github.genie.id.generator.core.auto.Config;
-import io.github.genie.id.generator.core.auto.AutoSyncIdGeneratorFactory;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -36,8 +34,7 @@ class MySqlRepositoryTest {
 //        JdbcRepository repository = new JdbcRepository(source::getConnection);
 //        DefaultIdGeneratorFactory factory = new DefaultIdGeneratorFactory(repository);
 
-        Config config1 = new Config();
-        IdGeneratorFactory factory = new AutoSyncIdGeneratorFactory(config1, new MysqlSyncClock(1, source::getConnection));
+        IdGeneratorFactory factory = new MysqlConfigurationCenter(source::getConnection);
 
         IdGenerator test = factory.getIdGenerator("test");
         int size = 1000000;

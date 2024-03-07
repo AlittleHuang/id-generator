@@ -1,5 +1,7 @@
 package io.github.genie.id.generator.repository.jdbc;
 
+import io.github.genie.id.generator.core.auto.InitialConfiguration;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -8,18 +10,29 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
 
-public class MysqlSyncClock extends JdbcSyncClock {
-    public MysqlSyncClock(int maxId, ConnectionProvider connectionProvider) {
-        super(maxId, connectionProvider);
+public class MysqlConfigurationCenter extends JdbcConfigurationCenter {
+
+
+    public MysqlConfigurationCenter(ConnectionProvider connectionProvider) {
+        super(connectionProvider, new InitialConfiguration());
     }
 
-    public MysqlSyncClock(int maxId,
-                          String key,
-                          ConnectionProvider connectionProvider,
-                          int expirySeconds,
-                          Duration lockRenewalPeriod,
-                          ScheduledExecutorService scheduledExecutorService) {
-        super(maxId, key, connectionProvider, expirySeconds, lockRenewalPeriod, scheduledExecutorService);
+    public MysqlConfigurationCenter(int maxId,
+                                    String key,
+                                    ConnectionProvider connectionProvider,
+                                    int expirySeconds,
+                                    Duration lockRenewalPeriod,
+                                    ScheduledExecutorService scheduledExecutorService,
+                                    int machineBits,
+                                    int sequenceBits) {
+        super(maxId,
+                key,
+                connectionProvider,
+                expirySeconds,
+                lockRenewalPeriod,
+                scheduledExecutorService,
+                machineBits,
+                sequenceBits);
     }
 
     public long getAwaitTime(Connection connection, int maxId) throws SQLException {
@@ -120,5 +133,6 @@ public class MysqlSyncClock extends JdbcSyncClock {
             throw new RuntimeSqlException(e);
         }
     }
+
 
 }
