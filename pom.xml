@@ -10,8 +10,8 @@
 
   <packaging>pom</packaging>
   <modules>
-    <module>core</module>
-    <module>jdbc-repository</module>
+    <module>id-generator-core</module>
+    <module>id-generator-jdbc</module>
   </modules>
 
   <properties>

@@ -8,9 +8,9 @@ public class LocalIdGenerator implements IdGenerator {
     private final AtomicLong generator = new AtomicLong();
     private final int sequenceBits;
     private final long startStamp;
-    private final MillisClock clock;
+    private final Clock clock;
 
-    public LocalIdGenerator(int sequenceBits, long startStamp, MillisClock clock) {
+    public LocalIdGenerator(int sequenceBits, long startStamp, Clock clock) {
         this.sequenceBits = sequenceBits;
         this.startStamp = startStamp;
         this.clock = clock;
@@ -34,7 +34,7 @@ public class LocalIdGenerator implements IdGenerator {
         return startStamp;
     }
 
-    public MillisClock getClock() {
+    public Clock getClock() {
         return clock;
     }
 

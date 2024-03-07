@@ -1,7 +1,13 @@
 package io.github.genie.id.generator.repository.jdbc;
 
-import io.github.genie.id.generator.core.auto.SyncClock;
+import io.github.genie.id.generator.core.IdGenerator;
+import io.github.genie.id.generator.core.IdGeneratorFactory;
+import io.github.genie.id.generator.core.auto.AutoConfigurableIdGenerator;
+import io.github.genie.id.generator.core.auto.InitialConfiguration;
+import io.github.genie.id.generator.core.auto.ConfigurationCenter;
+import io.github.genie.id.generator.core.auto.ExpirableNodeId;
 import io.github.genie.id.generator.core.log.Log;
+import io.github.genie.id.generator.core.support.Clock;
 import org.jetbrains.annotations.NotNull;
 
 import java.math.BigInteger;
@@ -9,7 +15,9 @@ import java.nio.ByteBuffer;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -18,12 +26,14 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
-public abstract class JdbcSyncClock implements SyncClock {
+public abstract class JdbcConfigurationCenter implements ConfigurationCenter, Clock, IdGeneratorFactory {
+
     public static final int DEFAULT_EXPIRY_SECONDS = 20;
     public static final Duration DEFAULT_LOCK_RENEWAL_PERIOD = Duration.ofSeconds(3);
-    protected final Log log = Log.get(JdbcSyncClock.class);
+    protected final Log log = Log.get(JdbcConfigurationCenter.class);
+    private final Map<String, IdGenerator> generators = new ConcurrentHashMap<>();
 
-    protected volatile SyncClock.Clock clock;
+    protected volatile ExpirableNodeId machineId;
     protected static final String RANDOM_KEY = randomKey();
 
     protected final int maxId;
@@ -36,27 +46,46 @@ public abstract class JdbcSyncClock implements SyncClock {
     protected final long startStamp;
 
     protected final Lock lock = new ReentrantLock();
+    protected final int machineBits;
+    protected final int sequenceBits;
 
-    public JdbcSyncClock(int maxId, ConnectionProvider connectionProvider) {
-        this(maxId, RANDOM_KEY, connectionProvider, DEFAULT_EXPIRY_SECONDS, DEFAULT_LOCK_RENEWAL_PERIOD, newService());
+    public JdbcConfigurationCenter(ConnectionProvider connectionProvider, InitialConfiguration config) {
+        this(
+                ~(-1 << config.getNodeIdBits()),
+                RANDOM_KEY,
+                connectionProvider,
+                DEFAULT_EXPIRY_SECONDS,
+                DEFAULT_LOCK_RENEWAL_PERIOD,
+                newService(),
+                config.getNodeIdBits(),
+                config.getSequenceBits()
+        );
     }
 
-    public JdbcSyncClock(int maxId,
-                         String key,
-                         ConnectionProvider connectionProvider,
-                         int expirySeconds,
-                         Duration lockRenewalPeriod,
-                         ScheduledExecutorService scheduledExecutorService) {
+    public JdbcConfigurationCenter(int maxId,
+                                   String key,
+                                   ConnectionProvider connectionProvider,
+                                   int expirySeconds,
+                                   Duration lockRenewalPeriod,
+                                   ScheduledExecutorService scheduledExecutorService,
+                                   int machineBits,
+                                   int sequenceBits) {
         this.maxId = maxId;
         this.key = key;
         this.connectionProvider = connectionProvider;
         this.expirySeconds = expirySeconds;
+        this.machineBits = machineBits;
+        this.sequenceBits = sequenceBits;
         this.dbTimeOffset = getDbTimeOffset();
         this.startStamp = getStartTime();
         acquireId();
         initScheduled(scheduledExecutorService, lockRenewalPeriod);
     }
 
+    @Override
+    public IdGenerator getIdGenerator(String key) {
+        return generators.computeIfAbsent(key, k -> new AutoConfigurableIdGenerator(this));
+    }
     private void initScheduled(ScheduledExecutorService service, Duration lockRenewalPeriod) {
         long period = lockRenewalPeriod.toMillis();
         service.scheduleAtFixedRate(this::keepLock, period, period, TimeUnit.MILLISECONDS);
@@ -98,7 +127,7 @@ public abstract class JdbcSyncClock implements SyncClock {
     }
 
     protected boolean isIdExpired() {
-        return clock == null;
+        return machineId == null;
     }
 
     protected void acquireNewId(Connection connection) throws SQLException {
@@ -112,7 +141,7 @@ public abstract class JdbcSyncClock implements SyncClock {
 
     private void updateClock(Integer nextId) {
         long expiry = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expirySeconds);
-        clock = new Clock(nextId, dbServerTime(expiry));
+        machineId = new ExpirableMachineIdImpl(nextId, dbServerTime(expiry));
     }
 
     protected void acquireExistsId(Connection connection) throws SQLException {
@@ -165,8 +194,8 @@ public abstract class JdbcSyncClock implements SyncClock {
         if (!isIdExpired()) {
             try {
                 doInConnection(connection -> {
-                    if (renewTtl(connection, clock.id(), key, key, expirySeconds)) {
-                        updateClock(clock.id());
+                    if (renewTtl(connection, machineId.id(), key, key, expirySeconds)) {
+                        updateClock(machineId.id());
                     }
                 });
             } catch (Exception e) {
@@ -246,16 +275,41 @@ public abstract class JdbcSyncClock implements SyncClock {
     }
 
     @Override
-    public SyncClock.Clock acquire() {
-        return clock;
+    public long now() {
+        return dbServerTime(System.currentTimeMillis());
     }
 
-    class Clock implements SyncClock.Clock {
+    @Override
+    public Clock clock() {
+        return this;
+    }
+
+    @Override
+    public ExpirableNodeId acquireNodeId() {
+        return machineId;
+    }
+
+    @Override
+    public int machineBits() {
+        return this.machineBits;
+    }
+
+    @Override
+    public int sequenceBits() {
+        return this.sequenceBits;
+    }
+
+    @Override
+    public long startStamp() {
+        return startStamp;
+    }
+
+    static class ExpirableMachineIdImpl implements ExpirableNodeId {
 
         private final int id;
         private final long expiry;
 
-        public Clock(int id, long expiry) {
+        public ExpirableMachineIdImpl(int id, long expiry) {
             this.id = id;
             this.expiry = expiry;
         }
@@ -266,18 +320,8 @@ public abstract class JdbcSyncClock implements SyncClock {
         }
 
         @Override
-        public long startStamp() {
-            return startStamp;
-        }
-
-        @Override
         public long expiry() {
             return expiry;
-        }
-
-        @Override
-        public long now() {
-            return dbServerTime(System.currentTimeMillis());
         }
     }
 
